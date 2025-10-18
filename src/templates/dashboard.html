@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Portal Fiscal NEXA IA</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/dashboard.css') }}">
+</head>
+<body>
+    <div class="dashboard-container">
+        <header class="header">
+            <h1>📊 Portal Fiscal NEXA IA</h1>
+            <button class="logout-btn" id="logoutBtn">Sair</button>
+        </header>
+
+        <main class="main-content">
+            <section class="empresa-info">
+                <h2>🏢 Dados da Empresa</h2>
+                <p><strong>Nome:</strong> <span id="nomeEmpresa">Carregando...</span></p>
+                <p><strong>Regime Tributário:</strong> <span id="regimeEmpresa">Carregando...</span></p>
+                <p><strong>Natureza Jurídica:</strong> <span id="naturezaEmpresa">Carregando...</span></p>
+            </section>
+
+            <section class="acoes">
+                <button id="uploadBtn" class="action-btn">📁 Enviar Notas Fiscais</button>
+                <button id="chatBtn" class="action-btn">💬 Chat com IA Fiscal</button>
+            </section>
+
+            <section id="uploadSection" class="upload-section hidden">
+                <h2>📂 Upload de Notas</h2>
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <input type="file" id="fileInput" name="files" multiple accept=".pdf,.xml,.csv">
+                    <input type="text" id="apiKey" placeholder="Insira sua chave de API Gemini/Grok">
+                    <button type="submit">Enviar</button>
+                </form>
+                <div id="uploadStatus"></div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        document.getElementById("logoutBtn").addEventListener("click", async () => {
+            const res = await fetch("/logout", { method: "POST" });
+            if (res.ok) window.location.href = "/";
+        });
+
+        document.getElementById("uploadBtn").addEventListener("click", () => {
+            document.getElementById("uploadSection").classList.toggle("hidden");
+        });
+
+        document.getElementById("chatBtn").addEventListener("click", () => {
+            window.location.href = "/chat";
+        });
+
+        // Carrega dados da empresa logada
+        window.onload = async () => {
+            try {
+                const res = await fetch("/api/usuario_dados");
+                const data = await res.json();
+                document.getElementById("nomeEmpresa").textContent = data.nome || "—";
+                document.getElementById("regimeEmpresa").textContent = data.regime || "—";
+                document.getElementById("naturezaEmpresa").textContent = data.natureza || "—";
+            } catch (e) {
+                console.error("Erro ao carregar dados:", e);
+            }
+        };
+
+        // Handler para upload de arquivos (CORRIGIDO: rota e campo api_key)
+        document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+            e.preventDefault();  // Impede submit padrão
+
+            const files = document.getElementById("fileInput").files;
+            const apiKey = document.getElementById("apiKey").value.trim();
+            const statusDiv = document.getElementById("uploadStatus");
+
+            if (files.length === 0) {
+                statusDiv.innerHTML = '<p style="color: red;">Selecione pelo menos um arquivo!</p>';
+                return;
+            }
+            if (!apiKey) {
+                statusDiv.innerHTML = '<p style="color: red;">Insira a chave de API!</p>';
+                return;
+            }
+
+            statusDiv.innerHTML = '<p>Enviando... Aguarde.</p>';  // Loading
+
+            const formData = new FormData();
+            for (let file of files) {
+                formData.append("files", file);  // Nome "files" pro backend
+            }
+            formData.append("api_key", apiKey);  // CORRIGIDO: "api_key" em snake_case
+
+            try {
+                const res = await fetch("/api/process-documents", {  // CORRIGIDO: rota real
+                    method: "POST",
+                    body: formData  // Multipart automático
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    statusDiv.innerHTML = `<p style="color: green;">Sucesso! ${data.mensagem || 'Arquivos processados.'}</p>`;
+                    // Para múltiplos arquivos, mostra detalhes
+                    if (Array.isArray(data)) {
+                        let html = '<ul>';
+                        data.forEach(item => html += `<li>${item.arquivo}: ${item.status}</li>`);
+                        html += '</ul>';
+                        statusDiv.innerHTML += html;
+                    }
+                    document.getElementById("uploadForm").reset();  // Limpa o form
+                } else {
+                    statusDiv.innerHTML = `<p style="color: red;">Erro: ${data.erro || 'Falha no processamento.'}</p>`;
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `<p style="color: red;">Erro de conexão: ${error.message}</p>`;
+                console.error("Erro no upload:", error);
+            }
+        });
+    </script>
+</body>
+</html>

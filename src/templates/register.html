@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Cadastro | Portal Fiscal NEXA IA</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/register.css') }}">
+<body>
+    <div class="register-container">
+        <h1>Cadastro de Empresa</h1>
+        <form id="registerForm">
+            <input type="text" id="cnpj" placeholder="CNPJ válido" required>
+            <input type="password" id="senha" placeholder="Senha" required>
+            <button type="submit">Cadastrar</button>
+        </form>
+        <p>Já possui conta? <a href="/">Faça login</a></p>
+        <p id="mensagem" class="mensagem"></p>
+    </div>
+
+    <script>
+        document.getElementById("registerForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const cnpj = document.getElementById("cnpj").value;
+            const senha = document.getElementById("senha").value;
+
+            const res = await fetch("/register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ cnpj, senha })
+            });
+
+            const data = await res.json();
+            const msg = document.getElementById("mensagem");
+
+            if (res.ok) {
+                msg.textContent = "✅ Cadastro realizado com sucesso! Redirecionando...";
+                msg.style.color = "#0f0";
+                setTimeout(() => window.location.href = "/", 1500);
+            } else {
+                msg.textContent = "❌ " + (data.erro || "Erro ao cadastrar.");
+                msg.style.color = "#f33";
+            }
+        });
+    </script>
+</body>
+</html>

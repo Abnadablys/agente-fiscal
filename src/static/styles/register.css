@@ -1,0 +1,70 @@
+/* =======================
+   REGISTER PAGE STYLE
+   ======================= */
+body {
+    margin: 0;
+    font-family: "Poppins", sans-serif;
+    background: linear-gradient(135deg, #0d1117, #161b22);
+    color: #f0f6fc;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.register-container {
+    background: #1c2128;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 40px;
+    width: 380px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    text-align: center;
+}
+
+h1 {
+    font-size: 1.4em;
+    margin-bottom: 20px;
+    color: #58a6ff;
+}
+
+input {
+    width: 90%;
+    padding: 12px;
+    margin: 10px 0;
+    border: none;
+    border-radius: 6px;
+    background: #0d1117;
+    color: #fff;
+    font-size: 14px;
+}
+
+button {
+    background: #238636;
+    color: #fff;
+    border: none;
+    padding: 12px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    width: 95%;
+    font-weight: bold;
+    transition: background 0.3s ease;
+}
+
+button:hover {
+    background: #2ea043;
+}
+
+a {
+    color: #58a6ff;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+.mensagem {
+    margin-top: 12px;
+    font-size: 14px;
+}

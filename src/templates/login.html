@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Login | Portal Fiscal NEXA IA</title>
+    <!-- Link para CSS (via flask url_for) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/login.css') }}">
+</head>
+<body>
+    <div class="login-container">
+        <h1>Portal Fiscal NEXA IA</h1>
+        <form id="loginForm">
+            <input type="text" id="cnpj" placeholder="CNPJ" required>
+            <input type="password" id="senha" placeholder="Senha" required>
+            <button type="submit">Entrar</button>
+        </form>
+        <p>Não tem conta? <a href="/register">Cadastre-se</a></p>
+        <p id="mensagem" class="mensagem"></p>
+    </div>
+
+    <script>
+        document.getElementById("loginForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const cnpj = document.getElementById("cnpj").value;
+            const senha = document.getElementById("senha").value;
+
+            const res = await fetch("/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ cnpj, senha })
+            });
+
+            const data = await res.json();
+            const msg = document.getElementById("mensagem");
+
+            if (res.ok) {
+                msg.textContent = "✅ Login bem-sucedido! Redirecionando...";
+                msg.style.color = "#0f0";
+                setTimeout(() => window.location.href = "/dashboard", 1200);
+            } else {
+                msg.textContent = "❌ " + (data.erro || "Erro ao fazer login.");
+                msg.style.color = "#f33";
+            }
+        });
+    </script>
+</body>
+</html>

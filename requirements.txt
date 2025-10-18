@@ -1,0 +1,9 @@
+flask
+flask-cors
+sqlalchemy
+bcrypt
+requests
+langchain
+google-generativeai
+openai
+pdfplumber

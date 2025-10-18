@@ -1,0 +1,30 @@
+<!-- src/templates/chat.html -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat Fiscal IA</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles/chat.css') }}">
+</head>
+<body>
+  <div class="chat-container">
+    <header>
+      <h1>💬 Chat Fiscal IA</h1>
+      <button onclick="window.location.href='/dashboard'">⬅️ Voltar</button>
+    </header>
+
+    <div class="chat-box" id="chat-box">
+      <div class="chat-message bot">👋 Olá! Sou seu assistente fiscal. Digite sua pergunta abaixo.</div>
+    </div>
+
+    <footer>
+      <input type="text" id="apiKey" placeholder="🔑 Insira sua chave da API Gemini ou Grok">
+      <input type="text" id="pergunta" placeholder="Digite sua pergunta...">
+      <button id="enviar">Enviar</button>
+    </footer>
+  </div>
+
+  <script src="{{ url_for('static', filename='scripts/chat.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+# src/routes/chat.py
+from flask import Blueprint, request, jsonify, session
+from database.connection import SessionLocal
+from models.nota_fiscal import NotaFiscal, ItemNota
+from services.gemini_service import chamar_gemini
+import json
+
+chat_bp = Blueprint("chat_bp", __name__)
+
+#@chat_bp.route("/api/chat", methods=["POST"]) tiramos api
+
+@chat_bp.route("/chat", methods=["POST"])
+def chat_fiscal():
+    """
+    Agente fiscal inteligente: responde com base nos dados salvos no banco.
+    """
+    data = request.get_json()
+    pergunta = data.get("mensagem", "")
+    api_key = data.get("api_key", "")
+    modelo = data.get("modelo", "gemini-2.5-flash")
+
+    if not api_key:
+        return jsonify({"resposta": "❌ Nenhuma chave de API fornecida."}), 400
+
+    # Recupera notas fiscais do banco
+    db = SessionLocal()
+    notas = db.query(NotaFiscal).all()
+
+    if not notas:
+        contexto = "⚠️ Nenhuma nota fiscal encontrada no banco de dados."
+    else:
+        contexto = "📦 Notas fiscais registradas:\n"
+        for n in notas[-5:]:  # pega as 5 últimas notas
+            contexto += f"""
+Nota nº {n.numero} - {n.nome_emitente} ({n.cnpj_emitente})
+Data: {n.data_emissao} | Valor: {n.valor_total_nota} | Tipo: {n.tipo_operacao}
+Produtos:
+"""
+            for item in n.itens[:3]:
+                contexto += f" - {item.descricao_produto} (R$ {item.valor_total})\n"
+        contexto += "\nPergunta do usuário: " + pergunta
+
+    db.close()
+
+    # Gera resposta contextualizada
+    resposta = chamar_gemini(contexto, api_key, modelo)
+
+    return jsonify({"resposta": resposta})
