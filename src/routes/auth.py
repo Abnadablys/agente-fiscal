@@ -118,10 +118,37 @@ def get_usuario_dados():
     
     db.close()
     return jsonify({
-        "nome": usuario.nome,
-        "regime": usuario.regime_tributario,
-        "natureza": usuario.natureza_juridica
-    }), 200
+    "nome": usuario.nome,
+    "regime": usuario.regime_tributario,
+    "natureza": usuario.natureza_juridica,
+    "rbt12": usuario.rbt12  # NOVO
+}), 200
+
+@auth_bp.route("/api/atualizar_rbt12", methods=["POST"])
+def atualizar_rbt12():
+    if "cnpj" not in session:
+        return jsonify({"erro": "Não autorizado"}), 401
+    
+    data = request.get_json()
+    rbt12 = data.get("rbt12", 0.0)
+    
+    if rbt12 < 0:
+        return jsonify({"erro": "RBT12 deve ser positivo"}), 400
+    
+    db = SessionLocal()
+    try:
+        usuario = db.query(Usuario).filter_by(cnpj=session["cnpj"]).first()
+        if not usuario:
+            return jsonify({"erro": "Usuário não encontrado"}), 404
+        
+        usuario.rbt12 = float(rbt12)
+        db.commit()
+        db.close()
+        return jsonify({"mensagem": "RBT12 atualizado com sucesso!", "rbt12": rbt12}), 200
+    except Exception as e:
+        db.rollback()
+        db.close()
+        return jsonify({"erro": str(e)}), 500
 
 # 🔹 Rota: LOGOUT
 @auth_bp.route("/logout", methods=["POST"])

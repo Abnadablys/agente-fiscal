@@ -45,4 +45,10 @@ class ItemNota(Base):
     cst_cofins = Column(String)
     cest = Column(String)
 
+    # NOVO: Colunas pra impostos (Float pra soma fácil no chat)
+    icms_valor = Column(Float, default=0.0)
+    ipi_valor = Column(Float, default=0.0)
+    pis_valor = Column(Float, default=0.0)
+    cofins_valor = Column(Float, default=0.0)
+
     nota = relationship("NotaFiscal", back_populates="itens")

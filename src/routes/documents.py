@@ -5,10 +5,14 @@ import json
 import re  # Pra regex stripping e clean CNPJ
 import csv  # Pra ler CSV
 import traceback
+import logging  # Melhor que print para debug
 from flask import Blueprint, request, jsonify
 from werkzeug.utils import secure_filename
 from database.connection import SessionLocal
 from models.nota_fiscal import NotaFiscal, ItemNota
+
+# Configura logging
+logging.basicConfig(level=logging.DEBUG)
 
 # Importadores opcionais (se os módulos existirem)
 try:
@@ -27,9 +31,7 @@ try:
 except Exception:
     chamar_gemini = None
 
-
 document_bp = Blueprint("document_bp", __name__)
-
 
 def salvar_nota_no_db(dados_nota):
     """
@@ -89,27 +91,51 @@ def salvar_nota_no_db(dados_nota):
                 quantidade=str(item_data.get("quantidade", "")),
                 valor_unitario=str(item_data.get("valor_unitario", "")),
                 valor_total=str(item_data.get("valor_total", "")),
-                cest=item_data.get("cest", "")
+                cst_icms=item_data.get("cst_icms", ""),
+                cst_pis=item_data.get("cst_pis", ""),
+                cst_cofins=item_data.get("cst_cofins", ""),
+                cest=item_data.get("cest", ""),
+                # NOVO: Set impostos de item_data (do parser XML/CSV)
+                icms_valor=float(item_data.get("icms_valor", 0)),
+                ipi_valor=float(item_data.get("ipi_valor", 0)),
+                pis_valor=float(item_data.get("pis_valor", 0)),
+                cofins_valor=float(item_data.get("cofins_valor", 0))
             )
             session.add(item)
+            logging.debug(f"ITEM SALVO: {item.descricao_produto} - ICMS R${item.icms_valor:.2f}, IPI R${item.ipi_valor:.2f}")
 
         session.commit()
+        logging.debug(f"NOTA SALVA: {numero} - Total R${nota.valor_total_nota}, {len(itens)} itens")
         return {"ok": True}
 
     except Exception as e:
         session.rollback()
-        print(f"DEBUG ERRO SALVAR NOTA: {e}")
+        logging.error(f"ERRO SALVAR NOTA: {e}")
         return {"ok": False, "reason": str(e)}
     finally:
         session.close()
 
+def calcular_tipo_operacao(dados, user_cnpj):
+    """
+    Calcula tipo_operacao baseado em user_cnpj vs cnpj_emitente/destinatario.
+    Usado para consistência em todos formatos.
+    """
+    if user_cnpj:
+        if user_cnpj == dados.get("cnpj_emitente"):
+            return "Saída"
+        elif user_cnpj == dados.get("cnpj_destinatario"):
+            return "Entrada"
+        else:
+            return "Desconhecida"
+    return dados.get("tipo_operacao", "")  # Fallback se já setado ou desconhecido
 
 @document_bp.route("/process-documents", methods=["POST"])
 def process_documents():
     resultados = []
     uploaded_files = request.files.getlist("files")
     api_key = request.form.get("api_key", "")
-    modelo = "gemini-2.5-flash"  # Padrão; ajuste se Grok
+    user_cnpj = request.form.get("user_cnpj", "")  # NOVO: Pegue do form se disponível (ex.: de auth)
+    modelo = "gemini-2.5-flash"  # CORRIGIDO: Use versão válida; mude se for intencional 2.5
 
     for file in uploaded_files:
         filename = secure_filename(file.filename)
@@ -125,7 +151,7 @@ def process_documents():
             if filename.lower().endswith('.xml'):
                 # Processa XML (igual antes)
                 if processar_xml:
-                    dados = processar_xml(caminho)
+                    dados = processar_xml(caminho, user_cnpj=user_cnpj)  # Já calcula tipo_operacao
                     if dados:
                         save_res = salvar_nota_no_db(dados)
                         if save_res.get("ok"):
@@ -144,14 +170,14 @@ def process_documents():
                     continue
 
                 texto = extrair_texto_pdf(caminho)
-                print(f"DEBUG TEXTO EXTRAÍDO PDF ({filename}): {texto[:500]}...")  # Debug
+                logging.debug(f"TEXTO EXTRAÍDO PDF ({filename}): {texto[:500]}...")
 
                 if not texto:
                     resultados.append({"arquivo": filename, "status": "PDF vazio ou erro extração"})
                     continue
 
                 if api_key and chamar_gemini:
-                    # PROMPT MELHORADO (igual anterior)
+                    # PROMPT MELHORADO (adicionando campos faltantes)
                     prompt = f"""
                     Extraia dados de Nota Fiscal Eletrônica de um PDF de texto. Retorne APENAS o JSON cru válido, SEM markdown, blocos de código (sem ```), texto extra ou explicações. Use estrutura exata:
                     {{
@@ -168,7 +194,7 @@ def process_documents():
                         "chave_nfe": "44 dígitos",
                         "natureza_operacao": "descrição",
                         "valor_total_nota": número float sem R$,
-                        "tipo_operacao": "Entrada/Saída",
+                        "tipo_operacao": "Entrada/Saída",  # A IA infere, mas corrigiremos pós-parse
                         "versao": "versão SEFAZ",
                         "itens": [
                             {{
@@ -181,7 +207,14 @@ def process_documents():
                                 "quantidade": número float,
                                 "valor_unitario": número float sem R$,
                                 "valor_total": número float sem R$,
-                                "cest": "código"
+                                "cst_icms": "código",
+                                "cst_pis": "código",
+                                "cst_cofins": "código",
+                                "cest": "código",
+                                "icms_valor": número float,
+                                "ipi_valor": número float,
+                                "pis_valor": número float,
+                                "cofins_valor": número float
                             }}
                         ]
                     }}
@@ -189,22 +222,25 @@ def process_documents():
                     Texto do PDF: {texto}
                     """
                     resposta = chamar_gemini(prompt, api_key, modelo=modelo)
-                    print(f"DEBUG RESPOSTA IA PDF ({filename}): {resposta[:500]}...")  # Debug
+                    logging.debug(f"RESPOSTA IA PDF ({filename}): {resposta[:500]}...")
 
                     resposta_texto = resposta if isinstance(resposta, str) else (resposta.get("text") if isinstance(resposta, dict) else str(resposta))
                     
-                    # Stripping robusto pra markdown
+                    # Stripping robusto pra markdown e extras
                     resposta_texto = resposta_texto.strip()
                     resposta_texto = re.sub(r'^```json\s*', '', resposta_texto)  # Remove ```json no start
                     resposta_texto = re.sub(r'```\s*$', '', resposta_texto)  # Remove ``` no end
-                    resposta_texto = resposta_texto.strip()  # Limpa espaços extras
+                    resposta_texto = re.sub(r'^\{|\}$', '', resposta_texto.strip())  # Extra safe para braces soltas
+                    resposta_texto = '{' + resposta_texto + '}' if not resposta_texto.startswith('{') else resposta_texto
 
-                    print(f"DEBUG RESPOSTA APÓS STRIP PDF ({filename}): {resposta_texto[:500]}...")  # Debug após clean
+                    logging.debug(f"RESPOSTA APÓS STRIP PDF ({filename}): {resposta_texto[:500]}...")
 
                     # Try parse JSON
                     try:
                         dados = json.loads(resposta_texto)
-                        print(f"DEBUG JSON PARSED PDF ({filename}): {json.dumps(dados, indent=2)[:300]}...")  # Debug
+                        # NOVO: Calcular tipo_operacao baseado em user_cnpj
+                        dados["tipo_operacao"] = calcular_tipo_operacao(dados, user_cnpj)
+                        logging.debug(f"JSON PARSED PDF ({filename}): {json.dumps(dados, indent=2)[:300]}...")
                         save_res = salvar_nota_no_db(dados)
                         if save_res.get("ok"):
                             resultados.append({"arquivo": filename, "status": "sucesso (PDF->IA->DB)"})
@@ -213,7 +249,7 @@ def process_documents():
                         else:
                             resultados.append({"arquivo": filename, "status": f"erro salvar no DB: {save_res.get('reason')}"})
                     except json.JSONDecodeError as e:
-                        print(f"DEBUG ERRO PARSE JSON PDF ({filename}): {e} - Resposta após strip: {resposta_texto[:200]}...")  # Debug
+                        logging.error(f"ERRO PARSE JSON PDF ({filename}): {e} - Resposta após strip: {resposta_texto[:200]}...")
                         
                         # FALLBACK: Parse manual simples do texto raw
                         dados_fallback = {}
@@ -226,8 +262,10 @@ def process_documents():
                         match_cnpj_emit = re.search(r'CNPJ\s*([\d/.-]+)', texto)  # Ajuste se múltiplos
                         dados_fallback["cnpj_emitente"] = re.sub(r'[^\d]', '', match_cnpj_emit.group(1)) if match_cnpj_emit else None
                         dados_fallback["itens"] = []  # Sem itens no fallback
+                        # NOVO: Calcular tipo_operacao no fallback
+                        dados_fallback["tipo_operacao"] = calcular_tipo_operacao(dados_fallback, user_cnpj)
                         
-                        print(f"DEBUG FALLBACK DADOS PDF ({filename}): {dados_fallback}")  # Debug
+                        logging.debug(f"FALLBACK DADOS PDF ({filename}): {dados_fallback}")
                         save_res = salvar_nota_no_db(dados_fallback)
                         if save_res.get("ok"):
                             resultados.append({"arquivo": filename, "status": "sucesso parcial (fallback sem itens)"})
@@ -244,18 +282,18 @@ def process_documents():
                         resultados.append({"arquivo": filename, "status": f"erro salvando texto: {str(e)}"})
                 continue
 
-            # CORRIGIDO: Processa CSV com ';' delimiter e layout específico
+            # Processa CSV (igual anterior)
             elif filename.lower().endswith('.csv'):
-                print(f"DEBUG CSV LIDO ({filename}): Iniciando parse...")  # Debug
+                logging.debug(f"CSV LIDO ({filename}): Iniciando parse...")
                 dados_notas = {}  # Agrupa por numero_nota + chave_acesso
                 try:
                     with open(caminho, 'r', encoding='utf-8') as f:
-                        reader = csv.DictReader(f, delimiter=';')  # CORRIGIDO: delimiter=';' pra CSV BR
+                        reader = csv.DictReader(f, delimiter=';')  # delimiter=';' pra CSV BR
                         rows = list(reader)
                     
                     if rows:
-                        print(f"DEBUG PRIMEIRA ROW KEYS CSV ({filename}): {list(rows[0].keys())}")  # Debug headers
-                        print(f"DEBUG PRIMEIRA ROW CSV ({filename}): {rows[0]}")  # Debug 1ª linha
+                        logging.debug(f"PRIMEIRA ROW KEYS CSV ({filename}): {list(rows[0].keys())}")
+                        logging.debug(f"PRIMEIRA ROW CSV ({filename}): {rows[0]}")
                     
                     for row in rows:
                         numero = row.get('numero_nota', '').strip()
@@ -266,7 +304,7 @@ def process_documents():
                             if item_num == 'TOTAL' and numero:  # Linha TOTAL: Pega valor_total_nota
                                 if numero in dados_notas:
                                     dados_notas[numero]['valor_total_nota'] = row.get('valor_total_nota', '')
-                                    print(f"DEBUG TOTAL SETADO pra nota {numero}: R${row.get('valor_total_nota', '')}")  # Debug
+                                    logging.debug(f"TOTAL SETADO pra nota {numero}: R${row.get('valor_total_nota', '')}")
                             continue  # Pula TOTAL ou vazias
 
                         key = f"{numero}_{chave}" if chave else numero  # Unique key
@@ -274,7 +312,7 @@ def process_documents():
                             dados_notas[key] = {
                                 "numero": numero,
                                 "data_emissao": row.get('data_emissao', ''),
-                                "cnpj_emitente": re.sub(r'[^\d]', '', row.get('emitente_cnpj', '')),  # Limpa pra 14 dígitos
+                                "cnpj_emitente": re.sub(r'[^\d]', '', row.get('emitente_cnpj', '')),
                                 "nome_emitente": row.get('emitente_razao_social', ''),
                                 "ie_emitente": row.get('emitente_ie', ''),
                                 "endereco_emitente": row.get('emitente_endereco', ''),
@@ -283,9 +321,9 @@ def process_documents():
                                 "ie_destinatario": row.get('destinatario_ie', ''),
                                 "endereco_destinatario": row.get('destinatario_endereco', ''),
                                 "chave_nfe": chave,
-                                "natureza_operacao": row.get('tipo_operacao', ''),
+                                "natureza_operacao": row.get('natureza_operacao', '') or row.get('tipo_operacao', ''),  # CORRIGIDO: Use coluna correta, fallback
                                 "valor_total_nota": '',  # Setado na TOTAL
-                                "tipo_operacao": row.get('tipo_operacao', ''),
+                                "tipo_operacao": '',  # Calculado pós-parse
                                 "versao": row.get('serie', ''),  # Serie como versao approx
                                 "itens": []
                             }
@@ -296,20 +334,28 @@ def process_documents():
                                 "codigo_produto": row.get('produto_codigo', ''),
                                 "descricao_produto": row.get('produto_descricao', ''),
                                 "ncm": row.get('produto_ncm', ''),
-                                "cst_ipi": row.get('icms_aliquota', ''),  # Mapeia icms_aliquota pra cst_ipi (alíquota como str)
                                 "cfop": row.get('produto_cfop', ''),
                                 "unidade": row.get('produto_unidade', ''),
                                 "quantidade": row.get('produto_quantidade', ''),
                                 "valor_unitario": row.get('produto_valor_unitario', ''),
                                 "valor_total": row.get('produto_valor_total', ''),
-                                "cest": row.get('cest', '')  # Não no CSV
+                                "cst_icms": row.get('icms_cst', ''),
+                                "cst_ipi": row.get('ipi_cst', ''),
+                                "cst_pis": row.get('pis_cst', ''),
+                                "cst_cofins": row.get('cofins_cst', ''),
+                                "cest": row.get('cest', ''),
+                                "icms_valor": float(row.get('icms_valor', 0)),
+                                "ipi_valor": float(row.get('ipi_valor', 0)),
+                                "pis_valor": float(row.get('pis_valor', 0)),
+                                "cofins_valor": float(row.get('cofins_valor', 0))
                             }
                             dados_notas[key]["itens"].append(item)
 
-                    print(f"DEBUG DADOS PARSED CSV ({filename}): {len(dados_notas)} notas encontradas.")  # Debug
+                    logging.debug(f"DADOS PARSED CSV ({filename}): {len(dados_notas)} notas encontradas.")
 
-                    # Salva cada nota
+                    # Calcular tipo_operacao para cada nota e salvar
                     for key, dados in dados_notas.items():
+                        dados["tipo_operacao"] = calcular_tipo_operacao(dados, user_cnpj)  # NOVO: Calcula baseado em user_cnpj
                         save_res = salvar_nota_no_db(dados)
                         num = dados['numero']
                         if save_res.get("ok"):
@@ -318,7 +364,7 @@ def process_documents():
                             resultados.append({"arquivo": filename, "nota": num, "status": f"erro salvar: {save_res.get('reason')}"})
 
                 except Exception as e:
-                    print(f"DEBUG ERRO PARSE CSV ({filename}): {e}")
+                    logging.error(f"ERRO PARSE CSV ({filename}): {e}")
                     resultados.append({"arquivo": filename, "status": f"erro parsing CSV: {str(e)}"})
 
             else:
@@ -328,5 +374,9 @@ def process_documents():
         except Exception as e:
             traceback.print_exc()
             resultados.append({"arquivo": filename, "status": f"erro inesperado: {str(e)}"})
+        finally:
+            # NOVO: Limpe o arquivo temp para segurança
+            if os.path.exists(caminho):
+                os.remove(caminho)
 
     return jsonify(resultados)

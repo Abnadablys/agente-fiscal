@@ -18,6 +18,9 @@
                 <p><strong>Nome:</strong> <span id="nomeEmpresa">Carregando...</span></p>
                 <p><strong>Regime Tributário:</strong> <span id="regimeEmpresa">Carregando...</span></p>
                 <p><strong>Natureza Jurídica:</strong> <span id="naturezaEmpresa">Carregando...</span></p>
+                <p><strong>RBT12 (últimos 12 meses):</strong> <span id="rbt12">Carregando...</span>
+                <input type="number" id="rbt12Input" placeholder="Ex: 500000.00" step="0.01">
+                <button onclick="salvarRBT12()">Salvar</button></p>
             </section>
 
             <section class="acoes">
@@ -37,84 +40,121 @@
         </main>
     </div>
 
-    <script>
-        document.getElementById("logoutBtn").addEventListener("click", async () => {
-            const res = await fetch("/logout", { method: "POST" });
-            if (res.ok) window.location.href = "/";
-        });
+<script>
+    document.getElementById("logoutBtn").addEventListener("click", async () => {
+        const res = await fetch("/logout", { method: "POST" });
+        if (res.ok) window.location.href = "/";
+    });
 
-        document.getElementById("uploadBtn").addEventListener("click", () => {
-            document.getElementById("uploadSection").classList.toggle("hidden");
-        });
+    document.getElementById("uploadBtn").addEventListener("click", () => {
+        document.getElementById("uploadSection").classList.toggle("hidden");
+    });
 
-        document.getElementById("chatBtn").addEventListener("click", () => {
-            window.location.href = "/chat";
-        });
+    document.getElementById("chatBtn").addEventListener("click", () => {
+        window.location.href = "/chat";
+    });
 
-        // Carrega dados da empresa logada
-        window.onload = async () => {
-            try {
-                const res = await fetch("/api/usuario_dados");
-                const data = await res.json();
-                document.getElementById("nomeEmpresa").textContent = data.nome || "—";
-                document.getElementById("regimeEmpresa").textContent = data.regime || "—";
-                document.getElementById("naturezaEmpresa").textContent = data.natureza || "—";
-            } catch (e) {
-                console.error("Erro ao carregar dados:", e);
-            }
-        };
+    // Carrega dados da empresa logada + RBT12 (CORRIGIDO: fetch primeiro, json depois)
+    window.onload = async () => {
+        try {
+            const res = await fetch("/api/usuario_dados");  // CORRIGIDO: fetch antes de json
+            const data = await res.json();  // Agora res é response
+            document.getElementById("nomeEmpresa").textContent = data.nome || "—";
+            document.getElementById("regimeEmpresa").textContent = data.regime || "—";
+            document.getElementById("naturezaEmpresa").textContent = data.natureza || "—";
+            // RBT12: Formata como moeda BR
+            const rbt12Value = data.rbt12 || 0;
+            document.getElementById("rbt12").textContent = `R$ ${rbt12Value.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            document.getElementById("rbt12Input").value = rbt12Value;
+        } catch (e) {
+            console.error("Erro ao carregar dados:", e);  // Debug no console F12
+            // Fallback se falhar
+            document.getElementById("nomeEmpresa").textContent = "—";
+            document.getElementById("regimeEmpresa").textContent = "—";
+            document.getElementById("naturezaEmpresa").textContent = "—";
+            document.getElementById("rbt12").textContent = "R$ 0,00";
+        }
+    };
 
-        // Handler para upload de arquivos (CORRIGIDO: rota e campo api_key)
-        document.getElementById("uploadForm").addEventListener("submit", async (e) => {
-            e.preventDefault();  // Impede submit padrão
+    // Handler para upload de arquivos (igual antes)
+    document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+        e.preventDefault();  // Impede submit padrão
 
-            const files = document.getElementById("fileInput").files;
-            const apiKey = document.getElementById("apiKey").value.trim();
-            const statusDiv = document.getElementById("uploadStatus");
+        const files = document.getElementById("fileInput").files;
+        const apiKey = document.getElementById("apiKey").value.trim();
+        const statusDiv = document.getElementById("uploadStatus");
 
-            if (files.length === 0) {
-                statusDiv.innerHTML = '<p style="color: red;">Selecione pelo menos um arquivo!</p>';
-                return;
-            }
-            if (!apiKey) {
-                statusDiv.innerHTML = '<p style="color: red;">Insira a chave de API!</p>';
-                return;
-            }
+        if (files.length === 0) {
+            statusDiv.innerHTML = '<p style="color: red;">Selecione pelo menos um arquivo!</p>';
+            return;
+        }
+        if (!apiKey) {
+            statusDiv.innerHTML = '<p style="color: red;">Insira a chave de API!</p>';
+            return;
+        }
 
-            statusDiv.innerHTML = '<p>Enviando... Aguarde.</p>';  // Loading
+        statusDiv.innerHTML = '<p>Enviando... Aguarde.</p>';  // Loading
 
-            const formData = new FormData();
-            for (let file of files) {
-                formData.append("files", file);  // Nome "files" pro backend
-            }
-            formData.append("api_key", apiKey);  // CORRIGIDO: "api_key" em snake_case
+        const formData = new FormData();
+        for (let file of files) {
+            formData.append("files", file);  // Nome "files" pro backend
+        }
+        formData.append("api_key", apiKey);  // "api_key" em snake_case
 
-            try {
-                const res = await fetch("/api/process-documents", {  // CORRIGIDO: rota real
-                    method: "POST",
-                    body: formData  // Multipart automático
-                });
+        try {
+            const res = await fetch("/api/process-documents", {  // Rota real
+                method: "POST",
+                body: formData  // Multipart automático
+            });
 
-                const data = await res.json();
+            const data = await res.json();
 
-                if (res.ok) {
-                    statusDiv.innerHTML = `<p style="color: green;">Sucesso! ${data.mensagem || 'Arquivos processados.'}</p>`;
-                    // Para múltiplos arquivos, mostra detalhes
-                    if (Array.isArray(data)) {
-                        let html = '<ul>';
-                        data.forEach(item => html += `<li>${item.arquivo}: ${item.status}</li>`);
-                        html += '</ul>';
-                        statusDiv.innerHTML += html;
-                    }
-                    document.getElementById("uploadForm").reset();  // Limpa o form
-                } else {
-                    statusDiv.innerHTML = `<p style="color: red;">Erro: ${data.erro || 'Falha no processamento.'}</p>`;
+            if (res.ok) {
+                statusDiv.innerHTML = `<p style="color: green;">Sucesso! ${data.mensagem || 'Arquivos processados.'}</p>`;
+                // Para múltiplos arquivos, mostra detalhes
+                if (Array.isArray(data)) {
+                    let html = '<ul>';
+                    data.forEach(item => html += `<li>${item.arquivo}: ${item.status}</li>`);
+                    html += '</ul>';
+                    statusDiv.innerHTML += html;
                 }
-            } catch (error) {
-                statusDiv.innerHTML = `<p style="color: red;">Erro de conexão: ${error.message}</p>`;
-                console.error("Erro no upload:", error);
+                document.getElementById("uploadForm").reset();  // Limpa o form
+            } else {
+                statusDiv.innerHTML = `<p style="color: red;">Erro: ${data.erro || 'Falha no processamento.'}</p>`;
             }
-        });
-    </script>
+        } catch (error) {
+            statusDiv.innerHTML = `<p style="color: red;">Erro de conexão: ${error.message}</p>`;
+            console.error("Erro no upload:", error);
+        }
+    });
+
+    // NOVO: Função salvar RBT12
+    async function salvarRBT12() {
+        const rbt12Input = document.getElementById("rbt12Input").value;
+        const rbt12 = parseFloat(rbt12Input);
+        if (isNaN(rbt12) || rbt12 < 0) {
+            alert("RBT12 deve ser um número positivo!");
+            return;
+        }
+        try {
+            const res = await fetch("/api/atualizar_rbt12", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({rbt12})
+            });
+            const data = await res.json();
+            if (res.ok) {
+                alert("RBT12 salvo com sucesso!");
+                // Atualiza span local
+                document.getElementById("rbt12").textContent = `R$ ${rbt12.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            } else {
+                alert("Erro: " + data.erro);
+            }
+        } catch (error) {
+            alert("Erro de conexão: " + error.message);
+            console.error("Erro salvar RBT12:", error);
+        }
+    }
+</script>
 </body>
 </html>
