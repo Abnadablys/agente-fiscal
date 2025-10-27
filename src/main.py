@@ -1,17 +1,18 @@
-from models.nota_fiscal import NotaFiscal, ItemNota  # Se ItemNota existir
+# src/main.py
+from models.nota_fiscal import NotaFiscal, ItemNota
 from flask import Flask, render_template, redirect, session
 from flask_cors import CORS
 from routes.auth import auth_bp
 from routes.documents import document_bp
 from routes.chat import chat_bp
 from models.usuario import Usuario
+from database.connection import engine, Base
 import os
+import secrets  # Para gerar chave secreta segura
 
-# ADICIONE ESSES IMPORTS PARA O DB (ajuste o caminho se necessário)
-from database.connection import engine, Base  # engine e Base do seu connection.py
-
-app = Flask(__name__, static_folder="static", static_url_path="",)
-app.secret_key = "secreto123"
+app = Flask(__name__, static_folder="static", static_url_path="")
+# Chave secreta segura para produção (não hardcode em prod; use variável de ambiente)
+app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(16))
 CORS(app)
 
 # Registrar rotas
@@ -30,7 +31,6 @@ def index():
 def register():
     return render_template("register.html")
 
-
 @app.route("/dashboard")
 def dashboard():
     if "cnpj" not in session:
@@ -44,11 +44,14 @@ def chat():
     return render_template("chat.html")
 
 if __name__ == "__main__":
+    # Cria diretório temporário para uploads
     os.makedirs("src/temp", exist_ok=True)
 
-    # ADICIONE ISSO AQUI: CRIAÇÃO DAS TABELAS NO BANCO
-    with engine.connect() as connection:  # Conecta e cria tudo de uma vez
-        Base.metadata.create_all(bind=engine)  # Cria tabelas se não existirem
-    print("Banco de dados inicializado! Tabelas criadas com sucesso.")  # Para debug
+    # Inicializa banco de dados
+    with engine.connect() as connection:
+        Base.metadata.create_all(bind=engine)
+    print("Banco de dados inicializado! Tabelas criadas com sucesso.")
 
-    app.run(debug=True)
+    # Para desenvolvimento local apenas; em produção, Render usa Gunicorn
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=os.environ.get("FLASK_ENV") == "development")
