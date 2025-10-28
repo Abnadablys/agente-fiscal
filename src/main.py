@@ -1,11 +1,11 @@
 # src/main.py
-from .models.nota_fiscal import NotaFiscal, ItemNota
+from models.nota_fiscal import NotaFiscal, ItemNota
 from flask import Flask, render_template, redirect, session
 from flask_cors import CORS
-from .routes.auth import auth_bp
-from .routes.documents import document_bp
-from .routes.chat import chat_bp
-from .models.usuario import Usuario
+from routes.auth import auth_bp
+from routes.documents import document_bp
+from routes.chat import chat_bp
+from models.usuario import Usuario
 from database.connection import engine, Base
 import os
 import secrets  # Para gerar chave secreta segura
